@@ -204,6 +204,7 @@ The v1 `input`-event handler passes input through unchanged when it is:
 
 - extension-sourced;
 - not interactive TUI (`rpc`, `json`, and `print` modes are bypassed);
+- already segmented by v2 (contains a `[paste saved: …]` reference), so the pastes are not captured twice;
 - below the size threshold;
 - a slash command or bang command;
 - likely to contain an `@` file reference;
