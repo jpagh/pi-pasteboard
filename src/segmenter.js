@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { DEFAULT_ROOT, MAX_SEGMENTS, PASTE_MARKER_RE, SUBMISSIONS_SUBDIR } from "./constants.js";
+import { DEFAULT_MAX_SEGMENTS, DEFAULT_ROOT, PASTE_MARKER_RE, SUBMISSIONS_SUBDIR } from "./constants.js";
 
 /**
  * Parse paste-marker-bearing text into ordered segments.
@@ -63,26 +63,29 @@ export function parseSegments(markerText, pastes) {
  *
  * @param {string} markerText  Raw editor text with unexpanded paste markers.
  * @param {Map<number,string>} pastes  Runtime paste-id → content Map.
- * @param {{root?:string, minPasteBytes?:number}} [options]  `minPasteBytes`
- *   is a size floor below which no files are written (returns
- *   `error: "below-min-paste-bytes"`).  Defaults to 0 — the floor is a policy
- *   decision owned by the caller, not by segmenting itself.
+ * @param {{root?:string, minPasteBytes?:number, maxSegments?:number}} [options]
+ *   `minPasteBytes` is a size floor below which no files are written (returns
+ *   `error: "below-min-paste-bytes"`); it defaults to 0 because the floor is a
+ *   policy decision owned by the caller, not by segmenting itself.
+ *   `maxSegments` bounds the synchronous writes this call performs and defaults
+ *   to DEFAULT_MAX_SEGMENTS.
  * @returns {{transformedText:string, submissionId:string, submissionDir:string, manifest:object}}
  */
 export function processSegmentedPastes(markerText, pastes, options = {}) {
 	const root = options.root ?? DEFAULT_ROOT;
 	const minPasteBytes = options.minPasteBytes ?? 0;
+	const maxSegments = options.maxSegments ?? DEFAULT_MAX_SEGMENTS;
 	const segments = parseSegments(markerText, pastes);
 
 	// Guardrail: refuse to write an excessive number of segment files
 	// synchronously (which would block the terminal render loop).
 	// Past the cap the editor patcher falls back to v1 whole-input capture.
-	if (segments.length > MAX_SEGMENTS) {
+	if (segments.length > maxSegments) {
 		return {
 			transformedText: null,
 			error: "too-many-segments",
 			segmentCount: segments.length,
-			maxAllowed: MAX_SEGMENTS,
+			maxAllowed: maxSegments,
 		};
 	}
 

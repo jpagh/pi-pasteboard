@@ -6,8 +6,8 @@ import { tmpdir } from "node:os";
 import test from "node:test";
 
 import { getBypassReason, shouldCaptureInput, utf8ByteLength } from "../src/bypass.js";
-import { captureInput, extensionOptionsFromEnv, makeReferenceInstruction } from "../src/capture.js";
-import { DEFAULT_MIN_PASTE_BYTES, HASH_FILE_RE, STALE_LOCK_MS } from "../src/constants.js";
+import { captureInput, makeReferenceInstruction } from "../src/capture.js";
+import { HASH_FILE_RE, STALE_LOCK_MS } from "../src/constants.js";
 import { cleanupOldPasteFiles, ensurePasteboardRoot, PasteboardSafetyError, writePasteText } from "../src/pasteboard.js";
 import { open } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
@@ -213,57 +213,4 @@ test("captureInput returns continue for steer streaming behavior", async () => {
 	assert.equal(steerBypass, "non-interactive");
 	const tuiOk = getBypassReason({ text: "x".repeat(100), source: "interactive", mode: "tui" }, { minBytes: 10 });
 	assert.equal(tuiOk, undefined);
-});
-
-// ---------------------------------------------------------------------------
-// Environment configuration
-// ---------------------------------------------------------------------------
-
-function withEnv(vars, fn) {
-	const saved = {};
-	for (const [key, value] of Object.entries(vars)) {
-		saved[key] = process.env[key];
-		if (value === undefined) delete process.env[key];
-		else process.env[key] = value;
-	}
-	try {
-		return fn();
-	} finally {
-		for (const [key, value] of Object.entries(saved)) {
-			if (value === undefined) delete process.env[key];
-			else process.env[key] = value;
-		}
-	}
-}
-
-test("extensionOptionsFromEnv: v2 paste floor defaults to 4 KiB", () => {
-	withEnv({ PI_PASTEBOARD_MIN_PASTE_BYTES: undefined }, () => {
-		assert.equal(extensionOptionsFromEnv().minPasteBytes, DEFAULT_MIN_PASTE_BYTES);
-		assert.equal(DEFAULT_MIN_PASTE_BYTES, 4096);
-	});
-});
-
-test("extensionOptionsFromEnv: PI_PASTEBOARD_MIN_PASTE_BYTES accepts 0 (no floor)", () => {
-	withEnv({ PI_PASTEBOARD_MIN_PASTE_BYTES: "0" }, () => {
-		assert.equal(extensionOptionsFromEnv().minPasteBytes, 0);
-	});
-});
-
-test("extensionOptionsFromEnv: invalid PI_PASTEBOARD_MIN_PASTE_BYTES falls back to default", () => {
-	for (const bad of ["-1", "abc", "1.5", ""]) {
-		withEnv({ PI_PASTEBOARD_MIN_PASTE_BYTES: bad }, () => {
-			assert.equal(extensionOptionsFromEnv().minPasteBytes, DEFAULT_MIN_PASTE_BYTES, `input: ${bad}`);
-		});
-	}
-});
-
-test("extensionOptionsFromEnv: v1 and v2 thresholds are independent", () => {
-	withEnv(
-		{ PI_PASTEBOARD_MIN_BYTES: "65536", PI_PASTEBOARD_MIN_PASTE_BYTES: "1024" },
-		() => {
-			const options = extensionOptionsFromEnv();
-			assert.equal(options.minBytes, 65536);
-			assert.equal(options.minPasteBytes, 1024);
-		},
-	);
 });

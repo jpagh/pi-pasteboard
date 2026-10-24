@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
 
-import { HAS_PASTE_MARKER_RE, MAX_SEGMENTS, PASTE_MARKER_RE, STALE_LOCK_MS } from "../src/constants.js";
+import { HAS_PASTE_MARKER_RE, DEFAULT_MAX_SEGMENTS, PASTE_MARKER_RE, STALE_LOCK_MS } from "../src/constants.js";
 import { parseSegments, processSegmentedPastes } from "../src/segmenter.js";
 import { patchEditorForSegmentedPaste } from "../src/pasteboard-editor.js";
 import { cleanupOldSubmissions, ensurePasteboardRoot } from "../src/pasteboard.js";
@@ -671,13 +671,13 @@ test("cleanupOldSubmissions: stale lock is removed and cleanup proceeds", async 
 // Counterfactual: segment-count cap (F2)
 // ---------------------------------------------------------------------------
 
-test("processSegmentedPastes: rejects submissions exceeding MAX_SEGMENTS", () => {
+test("processSegmentedPastes: rejects submissions exceeding DEFAULT_MAX_SEGMENTS", () => {
 	const { root, parent } = tmpRoot();
 	try {
-		// Build a pastes Map and marker text with MAX_SEGMENTS+1 segments
+		// Build a pastes Map and marker text with DEFAULT_MAX_SEGMENTS+1 segments
 		const pastes = new Map();
 		const parts = [];
-		for (let i = 0; i <= MAX_SEGMENTS; i++) {
+		for (let i = 0; i <= DEFAULT_MAX_SEGMENTS; i++) {
 			pastes.set(i, `content${i}\n`);
 			parts.push(`[paste #${i} +1 lines]`);
 		}
@@ -687,7 +687,7 @@ test("processSegmentedPastes: rejects submissions exceeding MAX_SEGMENTS", () =>
 
 		assert.equal(result.error, "too-many-segments");
 		assert.equal(result.transformedText, null);
-		assert.ok(result.segmentCount > MAX_SEGMENTS);
+		assert.ok(result.segmentCount > DEFAULT_MAX_SEGMENTS);
 	} finally {
 		rm(parent, { recursive: true, force: true }).catch(() => undefined);
 	}
@@ -695,7 +695,7 @@ test("processSegmentedPastes: rejects submissions exceeding MAX_SEGMENTS", () =>
 
 test("counterfactual: segment cap prevents pathological submission hangs", () => {
 	// v1 whole-input capture writes one file regardless of input structure.
-	// v2 could write MAX_SEGMENTS files synchronously.  Without a cap,
+	// v2 could write DEFAULT_MAX_SEGMENTS files synchronously.  Without a cap,
 	// a massively fragmented submission could block the render loop.
 	// This test verifies the cap fires and the patcher falls back.
 
@@ -704,7 +704,7 @@ test("counterfactual: segment cap prevents pathological submission hangs", () =>
 		// Build well under the cap — should succeed
 		const pastes = new Map();
 		const parts = [];
-		const count = 10; // well under MAX_SEGMENTS of 50
+		const count = 10; // well under DEFAULT_MAX_SEGMENTS of 50
 		for (let i = 0; i < count; i++) {
 			pastes.set(i, `ok${i}\n`);
 			parts.push(`[paste #${i} +1 lines]`);
@@ -1147,6 +1147,30 @@ test("paste floor: missing marker maps to 0 bytes and never reaches the floor al
 			minPasteBytes: 0,
 		});
 		assert.equal(captured.manifest.segments[0].fallbackReason, "paste-marker-missing-from-map");
+	} finally {
+		rm(parent, { recursive: true, force: true }).catch(() => undefined);
+	}
+});
+
+test("processSegmentedPastes: maxSegments option overrides DEFAULT_MAX_SEGMENTS", () => {
+	const { root, parent } = tmpRoot();
+	try {
+		const pastes = new Map([
+			[1, "one\n"],
+			[2, "two\n"],
+			[3, "three\n"],
+		]);
+		const markerText = "[paste #1 +1 lines][paste #2 +1 lines][paste #3 +1 lines]";
+
+		const result = processSegmentedPastes(markerText, pastes, { root, maxSegments: 2 });
+		assert.equal(result.error, "too-many-segments");
+		assert.equal(result.maxAllowed, 2);
+		assert.equal(result.transformedText, null);
+
+		// The same submission passes with the default cap.
+		const ok = processSegmentedPastes(markerText, pastes, { root });
+		assert.equal(ok.error, undefined);
+		assert.ok(ok.transformedText.includes("[paste saved:"));
 	} finally {
 		rm(parent, { recursive: true, force: true }).catch(() => undefined);
 	}

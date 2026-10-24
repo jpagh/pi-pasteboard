@@ -66,20 +66,48 @@ The package manifest exposes `./src/index.ts` as a Pi extension.
 - v2 paste files and manifests are mode `0600` under per-submission directories.
 - Writes use same-directory temp files plus no-overwrite hard-link creation.
 - Cleanup is best-effort: old `sha256-*.txt` files and expired submission directories are removed on session start.
-- Default cleanup TTL is 7 days (`PI_PASTEBOARD_TTL_MS` may override). Default capture threshold is 32 KiB (`PI_PASTEBOARD_MIN_BYTES` may override).
-- The pasteboard root directory is `/tmp/pi-pasteboard` by default.  Override via `PI_PASTEBOARD_ROOT` env var.
+- Default cleanup TTL is 7 days and the default v1 capture threshold is 32 KiB; both are configurable (see [Configuration](#configuration)).
+- The pasteboard root directory is `/tmp/pi-pasteboard` by default.
 
-## Environment variables
+## Configuration
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `PI_PASTEBOARD_ROOT` | `/tmp/pi-pasteboard` | Storage root directory |
-| `PI_PASTEBOARD_MIN_BYTES` | `32768` | Minimum byte threshold for v1 whole-input capture |
-| `PI_PASTEBOARD_MIN_PASTE_BYTES` | `4096` | v2 only: total referenced paste bytes below which pastes stay inline. `0` captures every paste. |
-| `PI_PASTEBOARD_TTL_MS` | `604800000` (7 days) | Retention period for paste files and submission dirs |
-| `PI_PASTEBOARD_DEBUG` | unset | When `1`, emits debug-level logs to stderr about mode selection, fallback decisions, and I/O operations |
+Every setting has a hard-coded default and can be overridden by a config file or an environment variable. Precedence, highest first:
 
-With `PI_PASTEBOARD_DEBUG=1`, the extension logs whether v2 segmented capture is active, why a fallback occurred, and per-capture metadata (byte counts, file paths).  Without it, only a transient TUI notification marks mode installation — no ongoing noise.
+1. **Environment variable** (`PI_PASTEBOARD_*`)
+2. **Config file**
+3. **Built-in default**
+
+The config file is `pi-pasteboard.json` in Pi's agent directory — `$PI_CODING_AGENT_DIR/pi-pasteboard.json`, i.e. `~/.pi/agent/pi-pasteboard.json` by default. Set `PI_PASTEBOARD_CONFIG=/path/to/file.json` to use a different file. All keys are optional; a missing file is normal and silently ignored.
+
+```json
+{
+  "$schema": "./pi-pasteboard.schema.json",
+  "minPasteBytes": 8192,
+  "maxSegments": 20,
+  "debug": false
+}
+```
+
+| Key | Environment variable | Default | Purpose |
+|-----|---------------------|---------|---------|
+| `root` | `PI_PASTEBOARD_ROOT` | `/tmp/pi-pasteboard` | Storage root directory |
+| `minBytes` | `PI_PASTEBOARD_MIN_BYTES` | `32768` | Minimum byte threshold for v1 whole-input capture |
+| `minPasteBytes` | `PI_PASTEBOARD_MIN_PASTE_BYTES` | `4096` | v2 only: total referenced paste bytes below which pastes stay inline. `0` captures every paste. |
+| `maxSegments` | `PI_PASTEBOARD_MAX_SEGMENTS` | `50` | Maximum segment files written per submission; above it v2 falls back to v1 |
+| `ttlMs` | `PI_PASTEBOARD_TTL_MS` | `604800000` (7 days) | Retention period for paste files and submission dirs |
+| `debug` | `PI_PASTEBOARD_DEBUG` | `false` | Emit debug-level diagnostics to stderr |
+
+A JSON Schema ships as [`pi-pasteboard.schema.json`](pi-pasteboard.schema.json) for editor autocomplete and validation.
+
+### Config file validation
+
+The config file is read once per session and **fails soft**: this extension sits in the submit path of every prompt, so a typo must not disable paste capture. Invalid values are reported through a TUI notification (`pi-pasteboard: <reason>`) and on stderr when debugging is on, then that one field falls back to the next source in the precedence chain — a bad `PI_PASTEBOARD_MIN_PASTE_BYTES` falls back to the config file value, not to the built-in default. Unknown keys are reported and ignored.
+
+Environment values must be plain non-negative decimal integers; `0x10`, `1e3`, `Infinity` and `1.5` are rejected as invalid rather than silently coerced.
+
+### Debugging
+
+With `debug` enabled (or `PI_PASTEBOARD_DEBUG=1`), the extension logs the resolved config path, the effective option values, any config warnings, whether v2 segmented capture is active, why a fallback occurred, and per-capture metadata (byte counts, file paths). `PI_PASTEBOARD_DEBUG=0|false|no|off` turns debugging off again, which allows the environment to override `"debug": true` in the file. Without it, only a transient TUI notification marks mode installation — no ongoing noise.
 
 ## Limitations
 

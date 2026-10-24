@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { captureInput, extensionOptionsFromEnv } from "./capture.js";
+import { captureInput } from "./capture.js";
+import { resolveOptions } from "./config.js";
 import { cleanupOldPasteFiles, cleanupOldSubmissions } from "./pasteboard.js";
 import { patchEditorForSegmentedPaste } from "./pasteboard-editor.js";
 
@@ -10,7 +11,12 @@ import { patchEditorForSegmentedPaste } from "./pasteboard-editor.js";
 // unavailable, but v1 whole-input fallback remains active.
 
 export default function (pi: ExtensionAPI) {
-	const options = extensionOptionsFromEnv();
+	// Settings come from the config file, overlaid by environment variables.
+	// Warnings are collected here and surfaced once the UI is available.
+	const configWarnings: string[] = [];
+	const { options, configPath, configFound } = resolveOptions({
+		warn: (message: string) => configWarnings.push(message),
+	});
 	const debug = options.debug;
 
 	function debugLog(msg: string) {
@@ -19,6 +25,14 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	pi.on("session_start", async (_event, ctx) => {
+		debugLog(
+			configFound ? `config: ${configPath}` : `config: ${configPath} (not found; using defaults/env)`,
+		);
+		debugLog(`effective options: ${JSON.stringify(options)}`);
+		for (const warning of configWarnings) {
+			debugLog(`config warning: ${warning}`);
+			ctx.ui.notify(`pi-pasteboard: ${warning}`, "warning");
+		}
 		// Clean up old paste files and submission directories.
 		await cleanupOldPasteFiles(options).catch(() => undefined);
 		await cleanupOldSubmissions(options).catch(() => undefined);
@@ -66,6 +80,7 @@ export default function (pi: ExtensionAPI) {
 				return patchEditorForSegmentedPaste(editor, {
 					root: options.root,
 					minPasteBytes: options.minPasteBytes,
+					maxSegments: options.maxSegments,
 				});
 			});
 

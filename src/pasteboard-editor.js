@@ -1,5 +1,10 @@
 import { processSegmentedPastes } from "./segmenter.js";
-import { DEFAULT_MIN_PASTE_BYTES, DEFAULT_ROOT, HAS_PASTE_MARKER_RE } from "./constants.js";
+import {
+	DEFAULT_MAX_SEGMENTS,
+	DEFAULT_MIN_PASTE_BYTES,
+	DEFAULT_ROOT,
+	HAS_PASTE_MARKER_RE,
+} from "./constants.js";
 
 /**
  * Monkey-patch an editor instance so that `submitValue()` intercepts paste
@@ -12,7 +17,7 @@ import { DEFAULT_MIN_PASTE_BYTES, DEFAULT_ROOT, HAS_PASTE_MARKER_RE } from "./co
  *
  * @param {import("@earendil-works/pi-tui").Editor} editor  An Editor (or
  *   CustomEditor) instance freshly created by the editor factory.
- * @param {{root?:string, minPasteBytes?:number}} [options]
+ * @param {{root?:string, minPasteBytes?:number, maxSegments?:number}} [options]
  * @returns {typeof editor}  The same instance, now patched.
  */
 export function patchEditorForSegmentedPaste(editor, options = {}) {
@@ -20,6 +25,7 @@ export function patchEditorForSegmentedPaste(editor, options = {}) {
 	// Capture policy lives here, not in the segmenter: below this floor a file
 	// reference plus the follow-up read costs more than the inline paste.
 	const minPasteBytes = options.minPasteBytes ?? DEFAULT_MIN_PASTE_BYTES;
+	const maxSegments = options.maxSegments ?? DEFAULT_MAX_SEGMENTS;
 
 	// Capture the original submitValue before we shadow it.
 	// TS declares submitValue as private but in compiled JS it is a regular
@@ -57,7 +63,7 @@ export function patchEditorForSegmentedPaste(editor, options = {}) {
 
 		// --- Segment and transform ---
 		try {
-			const result = processSegmentedPastes(markerText, pastes, { root, minPasteBytes });
+			const result = processSegmentedPastes(markerText, pastes, { root, minPasteBytes, maxSegments });
 
 			// Not worth capturing — either the segment cap was exceeded or the
 			// pastes are too small to be worth a file.  Fall back to original
