@@ -147,7 +147,11 @@ export function processSegmentedPastes(markerText, pastes, options = {}) {
 			});
 		} else {
 			// paste — write to file, replace marker with reference
-			const pasteFile = join(submissionDir, `paste-${i}.txt`);
+			// Named by paste id, not segment index: the marker the user sees is
+			// "[paste #3 …]", so the file it becomes should say 3.  Segment
+			// indices skip numbers (typed segments occupy 0, 2, 4 …), which made
+			// references look like they were missing files.
+			const pasteFile = join(submissionDir, `paste-${seg.pasteId}.txt`);
 			const content = seg.text || "";
 			const bytes = Buffer.byteLength(content, "utf8");
 			const lines = content ? content.split("\n").length : 0;

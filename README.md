@@ -14,7 +14,7 @@ Pi's editor collapses large pastes (>10 lines or >1000 chars) into display marke
 pi-pasteboard installs a custom editor wrapper on `session_start` via `ctx.ui.setEditorComponent()` that monkey-patches `submitValue()`. The wrapper reads marker-bearing text and the runtime `pastes` Map BEFORE expansion, then:
 
 1. Parses the marker text into ordered segments: `typed → paste → typed → paste → typed`.
-2. Saves each paste to a 0600 file under `/tmp/pi-pasteboard/submissions/<uuid>/paste-<N>.txt`. Submissions whose referenced paste bytes total less than `PI_PASTEBOARD_MIN_PASTE_BYTES` (default 4 KiB) are left inline — see [Small pastes](#small-pastes-below-the-capture-floor).
+2. Saves each paste to a 0600 file under `/tmp/pi-pasteboard/submissions/<uuid>/paste-<id>.txt`, named after the paste id in its marker. Submissions whose referenced paste bytes total less than `PI_PASTEBOARD_MIN_PASTE_BYTES` (default 4 KiB) are left inline — see [Small pastes](#small-pastes-below-the-capture-floor).
 3. Writes a `manifest.json` with segment metadata (submission id, order, kind, file path, byte/line counts, timestamps, fallback reason if any).
 4. Replaces each paste marker with `[paste saved: <path>]` so the model can `read` the file.
 5. Lets the original submit flow continue — the model sees only short file references.
@@ -27,9 +27,9 @@ The model receives:
 
 ```
 Review this:
-[paste saved: /tmp/pi-pasteboard/submissions/<uuid>/paste-1.txt]
+[paste saved: /tmp/pi-pasteboard/submissions/<uuid>/paste-1.txt (500 lines, 18.2KB)]
 Thanks!
-[paste saved: /tmp/pi-pasteboard/submissions/<uuid>/paste-3.txt]
+[paste saved: /tmp/pi-pasteboard/submissions/<uuid>/paste-2.txt (200 lines, 4.1KB)]
 ```
 
 And can read each paste file individually via the `read` tool.
@@ -256,8 +256,8 @@ npm run lint      # alias for typecheck
 ├── .cleanup.lock              # cleanup mutual-exclusion lock
 └── submissions/
     └── <uuid>/
-        ├── manifest.json      # segment metadata
-        ├── paste-0.txt        # paste segment files (0600)
-        ├── paste-1.txt
+        ├── manifest.json      # segment metadata (no segment text)
+        ├── paste-1.txt        # paste files, named by paste id (0600)
+        ├── paste-2.txt
         └── ...
 ```

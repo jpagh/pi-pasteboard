@@ -279,8 +279,9 @@ test("processSegmentedPastes: writes paste files and manifest, returns refs", ()
 		assert.equal(manifest.segments[3].pasteId, 2);
 
 		// Paste files contain correct content
+		// Files are named by paste id, matching the "[paste #N …]" marker.
 		const paste1Path = join(result.submissionDir, "paste-1.txt");
-		const paste2Path = join(result.submissionDir, "paste-3.txt");
+		const paste2Path = join(result.submissionDir, "paste-2.txt");
 		assert.equal(readFileSync(paste1Path, "utf8"), "line1\nline2\nline3\n");
 		assert.equal(readFileSync(paste2Path, "utf8"), "config=true\n");
 	} finally {
@@ -316,8 +317,8 @@ test("processSegmentedPastes: missing marker → flagged in manifest with empty 
 		assert.equal(result.manifest.segments[0].kind, "paste");
 		assert.equal(result.manifest.segments[0].fallbackReason, "paste-marker-missing-from-map");
 
-		// File should exist but be empty
-		const pastePath = join(result.submissionDir, "paste-0.txt");
+		// File should exist but be empty, named after the marker's paste id
+		const pastePath = join(result.submissionDir, "paste-1.txt");
 		assert.equal(readFileSync(pastePath, "utf8"), "");
 	} finally {
 		rm(parent, { recursive: true, force: true }).catch(() => undefined);
@@ -488,7 +489,7 @@ test("processSegmentedPastes: large paste content handled correctly", () => {
 		assert.equal(result.manifest.segments[0].lines, 1); // single line, no newlines
 
 		// Verify file content
-		const pastePath = join(result.submissionDir, "paste-0.txt");
+		const pastePath = join(result.submissionDir, "paste-1.txt");
 		const fileContent = readFileSync(pastePath, "utf8");
 		assert.equal(fileContent.length, 100 * 1024);
 	} finally {
@@ -510,7 +511,7 @@ test("processSegmentedPastes: binary-like content with null bytes", () => {
 			Buffer.byteLength(binaryContent, "utf8"),
 		);
 
-		const pastePath = join(result.submissionDir, "paste-0.txt");
+		const pastePath = join(result.submissionDir, "paste-1.txt");
 		const fileContent = readFileSync(pastePath);
 		assert.ok(fileContent.includes(0x00));
 	} finally {
@@ -914,7 +915,7 @@ test("processSegmentedPastes: Unicode paste content round-trips correctly", () =
 
 		const result = processSegmentedPastes(markerText, pastes, { root });
 
-		const pastePath = join(result.submissionDir, "paste-0.txt");
+		const pastePath = join(result.submissionDir, "paste-1.txt");
 		const fileContent = readFileSync(pastePath, "utf8");
 		assert.equal(fileContent, unicodeContent);
 		assert.equal(
@@ -1400,6 +1401,34 @@ test("manifest: typed prompt text never reaches disk", () => {
 			assert.equal(typeof segment.chars, "number");
 			assert.equal(typeof segment.bytes, "number");
 		}
+	} finally {
+		rm(parent, { recursive: true, force: true }).catch(() => undefined);
+	}
+});
+
+test("paste files are named by paste id, not segment index", () => {
+	const { root, parent } = tmpRoot();
+	try {
+		// Two pastes, ids 4 and 7, with typed text around them.  Segment
+		// indices would be 1 and 3; the file names must be paste-4 and paste-7.
+		const pastes = new Map([
+			[4, "four\n"],
+			[7, "seven\n"],
+		]);
+		const result = processSegmentedPastes(
+			"lead [paste #4 +1 lines] middle [paste #7 +1 lines] tail",
+			pastes,
+			{ root },
+		);
+
+		const files = result.manifest.segments.filter((s) => s.kind === "paste").map((s) => s.file);
+		assert.deepEqual(files.map((f) => f.split("/").pop()), ["paste-4.txt", "paste-7.txt"]);
+
+		// The reference in the prompt names the same file, so a reader can go
+		// from "[paste #7 …]" to "paste-7.txt" without guessing.
+		assert.ok(result.transformedText.includes("paste-4.txt"));
+		assert.ok(result.transformedText.includes("paste-7.txt"));
+		assert.equal(readFileSync(files[1], "utf8"), "seven\n");
 	} finally {
 		rm(parent, { recursive: true, force: true }).catch(() => undefined);
 	}
