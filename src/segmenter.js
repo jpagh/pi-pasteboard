@@ -136,10 +136,14 @@ export function processSegmentedPastes(markerText, pastes, options = {}) {
 
 		if (seg.kind === "typed") {
 			transformedParts.push(seg.text);
+			// Metadata only: the manifest is a sidecar, and duplicating the
+			// user's typed prompt onto disk (beyond the paste files they asked
+			// to save) is not part of the bargain.
 			manifest.segments.push({
 				index: i,
 				kind: "typed",
-				text: seg.text,
+				chars: seg.text.length,
+				bytes: Buffer.byteLength(seg.text, "utf8"),
 			});
 		} else {
 			// paste — write to file, replace marker with reference

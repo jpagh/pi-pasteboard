@@ -218,7 +218,7 @@ These bypasses do not apply to v2 segmented capture — if the editor wrapper is
 - Files are mode `0600` (v2 submissions) or `0600` (v1) — readable only by the file owner.
 - The submission root (`/tmp/pi-pasteboard`) is mode `0700` — no other user can list contents.
 - Paste content is **never** logged or stored in Pi's session history. Only the `[paste saved: <path>]` reference appears in the prompt.
-- The manifest JSON records metadata (byte counts, timestamps, segment order) but does **not** include the text of typed segments longer than a few characters.
+- The manifest JSON records metadata only — byte/char counts, timestamps, segment order, paste file paths. It contains **no segment text at all**, typed or pasted.
 - Enable `PI_PASTEBOARD_DEBUG=1` only for troubleshooting — debug output includes file paths but still excludes paste content.
 
 ## Cleanup

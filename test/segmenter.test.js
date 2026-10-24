@@ -270,7 +270,11 @@ test("processSegmentedPastes: writes paste files and manifest, returns refs", ()
 		assert.equal(manifest.segments[1].kind, "paste");
 		assert.equal(manifest.segments[1].pasteId, 1);
 		assert.equal(manifest.segments[2].kind, "typed");
-		assert.equal(manifest.segments[2].text, "\nThanks!\n");
+		// Typed segments are recorded as counts only — the manifest must not
+		// duplicate the user's typed prompt onto disk.
+		assert.equal(manifest.segments[2].text, undefined);
+		assert.equal(manifest.segments[2].chars, "\nThanks!\n".length);
+		assert.equal(manifest.segments[2].bytes, Buffer.byteLength("\nThanks!\n", "utf8"));
 		assert.equal(manifest.segments[3].kind, "paste");
 		assert.equal(manifest.segments[3].pasteId, 2);
 
@@ -423,13 +427,15 @@ test("counterfactual: typed-paste-typed-paste-typed order is preserved", () => {
 
 		// Manifest order must match
 		assert.equal(result.manifest.segments[0].kind, "typed");
-		assert.equal(result.manifest.segments[0].text, "T1\n");
+		assert.equal(result.manifest.segments[0].text, undefined);
+		assert.equal(result.manifest.segments[0].chars, "T1\n".length);
 		assert.equal(result.manifest.segments[1].kind, "paste");
 		assert.equal(result.manifest.segments[1].pasteId, 1);
 		assert.equal(result.manifest.segments[2].kind, "paste");
 		assert.equal(result.manifest.segments[2].pasteId, 2);
 		assert.equal(result.manifest.segments[3].kind, "typed");
-		assert.equal(result.manifest.segments[3].text, "T2");
+		assert.equal(result.manifest.segments[3].text, undefined);
+		assert.equal(result.manifest.segments[3].chars, 2);
 	} finally {
 		rm(parent, { recursive: true, force: true }).catch(() => undefined);
 	}
@@ -1368,6 +1374,32 @@ test("reference: single-line paste is described in the singular", () => {
 		editor.submitValue();
 
 		assert.match(editor.getSubmittedText(), /\(1 line, 9B\)/);
+	} finally {
+		rm(parent, { recursive: true, force: true }).catch(() => undefined);
+	}
+});
+
+test("manifest: typed prompt text never reaches disk", () => {
+	const { root, parent } = tmpRoot();
+	try {
+		const secret = "TYPED-PROMPT-MARKER-8f3a1c";
+		const pastes = new Map([[1, "pasted body\n"]]);
+		const result = processSegmentedPastes(
+			`${secret} before\n[paste #1 +1 lines]\n${secret} after`,
+			pastes,
+			{ root },
+		);
+
+		const manifestText = readFileSync(join(result.submissionDir, "manifest.json"), "utf8");
+		assert.ok(!manifestText.includes(secret), "typed text leaked into manifest.json");
+
+		// Counts are still recorded, so the manifest stays useful for debugging.
+		const typed = result.manifest.segments.filter((s) => s.kind === "typed");
+		assert.equal(typed.length, 2);
+		for (const segment of typed) {
+			assert.equal(typeof segment.chars, "number");
+			assert.equal(typeof segment.bytes, "number");
+		}
 	} finally {
 		rm(parent, { recursive: true, force: true }).catch(() => undefined);
 	}
