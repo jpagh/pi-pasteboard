@@ -1,4 +1,11 @@
-import { DEFAULT_MIN_BYTES, DEFAULT_ROOT, DEFAULT_TTL_MS, readPositiveIntegerEnv } from "./constants.js";
+import {
+	DEFAULT_MIN_BYTES,
+	DEFAULT_MIN_PASTE_BYTES,
+	DEFAULT_ROOT,
+	DEFAULT_TTL_MS,
+	readNonNegativeIntegerEnv,
+	readPositiveIntegerEnv,
+} from "./constants.js";
 import { getBypassReason } from "./bypass.js";
 import { cleanupOldPasteFiles, writePasteText } from "./pasteboard.js";
 
@@ -10,6 +17,10 @@ export function extensionOptionsFromEnv() {
 	return {
 		root: process.env.PI_PASTEBOARD_ROOT || DEFAULT_ROOT,
 		minBytes: readPositiveIntegerEnv("PI_PASTEBOARD_MIN_BYTES", DEFAULT_MIN_BYTES),
+		minPasteBytes: readNonNegativeIntegerEnv(
+			"PI_PASTEBOARD_MIN_PASTE_BYTES",
+			DEFAULT_MIN_PASTE_BYTES,
+		),
 		ttlMs: readPositiveIntegerEnv("PI_PASTEBOARD_TTL_MS", DEFAULT_TTL_MS),
 		debug: !!process.env.PI_PASTEBOARD_DEBUG,
 	};

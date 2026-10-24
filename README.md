@@ -14,7 +14,7 @@ Pi's editor collapses large pastes (>10 lines or >1000 chars) into display marke
 pi-pasteboard installs a custom editor wrapper on `session_start` via `ctx.ui.setEditorComponent()` that monkey-patches `submitValue()`. The wrapper reads marker-bearing text and the runtime `pastes` Map BEFORE expansion, then:
 
 1. Parses the marker text into ordered segments: `typed → paste → typed → paste → typed`.
-2. Saves each paste to a 0600 file under `/tmp/pi-pasteboard/submissions/<uuid>/paste-<N>.txt`.
+2. Saves each paste to a 0600 file under `/tmp/pi-pasteboard/submissions/<uuid>/paste-<N>.txt`. Submissions whose referenced paste bytes total less than `PI_PASTEBOARD_MIN_PASTE_BYTES` (default 4 KiB) are left inline — see [Small pastes](#small-pastes-below-the-capture-floor).
 3. Writes a `manifest.json` with segment metadata (submission id, order, kind, file path, byte/line counts, timestamps, fallback reason if any).
 4. Replaces each paste marker with `[paste saved: <path>]` so the model can `read` the file.
 5. Lets the original submit flow continue — the model sees only short file references.
@@ -75,6 +75,7 @@ The package manifest exposes `./src/index.ts` as a Pi extension.
 |----------|---------|---------|
 | `PI_PASTEBOARD_ROOT` | `/tmp/pi-pasteboard` | Storage root directory |
 | `PI_PASTEBOARD_MIN_BYTES` | `32768` | Minimum byte threshold for v1 whole-input capture |
+| `PI_PASTEBOARD_MIN_PASTE_BYTES` | `4096` | v2 only: total referenced paste bytes below which pastes stay inline. `0` captures every paste. |
 | `PI_PASTEBOARD_TTL_MS` | `604800000` (7 days) | Retention period for paste files and submission dirs |
 | `PI_PASTEBOARD_DEBUG` | unset | When `1`, emits debug-level logs to stderr about mode selection, fallback decisions, and I/O operations |
 
@@ -86,9 +87,13 @@ With `PI_PASTEBOARD_DEBUG=1`, the extension logs whether v2 segmented capture is
 
 If a user types literal `[paste #N ...]` text AND a matching paste ID exists in the Map (vanishingly rare — pastes are cleared every submit), the typed text is misidentified as a paste marker. The marker regex requires `[paste #` followed by a digit and optional ` +N lines` or ` N chars` suffix, which is unlikely in natural typing.
 
-### Small pastes
+### Small pastes (below the capture floor)
 
-Small pastes (<10 lines, <1000 chars): Pi never creates markers for small pastes — they stay inline in the typed text. These are invisible to segmentation and remain in the prompt.
+Pi creates a paste marker above 10 lines or 1000 chars, so a marker can represent as little as ~50 tokens of content. Capturing it is *not* free: the `[paste saved: …]` reference costs ~27 tokens and the follow-up `read` tool call another ~44 before any content arrives, and the read result then occupies context exactly like the inline paste would have — it is not evicted or amortised.
+
+So for anything the agent reads in full, capture is a net loss of roughly 70–80 tokens, plus a round trip. `PI_PASTEBOARD_MIN_PASTE_BYTES` (default 4 KiB) keeps those pastes inline. Only *referenced* paste content counts toward the floor: typed text does not, and neither does a paste whose marker the user deleted, since it never reaches the model. At or above the floor the file reference starts to pay off, because the agent can `grep`/`read` selectively instead of paying for the whole paste.
+
+Set `PI_PASTEBOARD_MIN_PASTE_BYTES=0` to capture every paste regardless of size (pre-threshold behaviour).
 
 ### Synchronous I/O latency
 

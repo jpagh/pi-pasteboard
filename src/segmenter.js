@@ -63,11 +63,15 @@ export function parseSegments(markerText, pastes) {
  *
  * @param {string} markerText  Raw editor text with unexpanded paste markers.
  * @param {Map<number,string>} pastes  Runtime paste-id → content Map.
- * @param {{root?:string}} [options]
+ * @param {{root?:string, minPasteBytes?:number}} [options]  `minPasteBytes`
+ *   is a size floor below which no files are written (returns
+ *   `error: "below-min-paste-bytes"`).  Defaults to 0 — the floor is a policy
+ *   decision owned by the caller, not by segmenting itself.
  * @returns {{transformedText:string, submissionId:string, submissionDir:string, manifest:object}}
  */
 export function processSegmentedPastes(markerText, pastes, options = {}) {
 	const root = options.root ?? DEFAULT_ROOT;
+	const minPasteBytes = options.minPasteBytes ?? 0;
 	const segments = parseSegments(markerText, pastes);
 
 	// Guardrail: refuse to write an excessive number of segment files
@@ -79,6 +83,24 @@ export function processSegmentedPastes(markerText, pastes, options = {}) {
 			error: "too-many-segments",
 			segmentCount: segments.length,
 			maxAllowed: MAX_SEGMENTS,
+		};
+	}
+
+	// Optional size floor: below it, writing a file and handing the model a
+	// reference costs more tokens than leaving the paste inline.  Only
+	// referenced paste segments count — a paste whose marker the user deleted
+	// never reaches the model, so it is not worth a file either.
+	const pasteBytes = segments.reduce(
+		(sum, seg) => sum + (seg.kind === "paste" ? Buffer.byteLength(seg.text ?? "", "utf8") : 0),
+		0,
+	);
+	if (pasteBytes < minPasteBytes) {
+		return {
+			transformedText: null,
+			error: "below-min-paste-bytes",
+			pasteBytes,
+			minPasteBytes,
+			segmentCount: segments.length,
 		};
 	}
 

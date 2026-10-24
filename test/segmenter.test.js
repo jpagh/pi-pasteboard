@@ -331,7 +331,9 @@ test("patchEditor: transforms markers, calls original submitValue", () => {
 		const markerText = "Before\n[paste #1 +5 lines]\nAfter";
 
 		const editor = fakeEditor(pastes, markerText);
-		patchEditorForSegmentedPaste(editor, { root });
+		// minPasteBytes: 0 — this test covers transformation mechanics, not the
+		// size floor (see "paste floor" tests below).
+		patchEditorForSegmentedPaste(editor, { root, minPasteBytes: 0 });
 
 		editor.submitValue();
 
@@ -749,9 +751,10 @@ test("counterfactual C1: e2e submission produces file refs NOT paste content", (
 		assert.ok(v1Expanded.includes("function foo()"));
 		assert.ok(v1Expanded.includes("const config"));
 
-		// Now test v2 behaviour:
+		// Now test v2 behaviour (minPasteBytes: 0 — exercising the transform,
+		// not the size floor):
 		const editor = fakeEditor(pastes, markerText);
-		patchEditorForSegmentedPaste(editor, { root });
+		patchEditorForSegmentedPaste(editor, { root, minPasteBytes: 0 });
 
 		editor.submitValue();
 
@@ -955,4 +958,196 @@ test("parseSegments: Unicode marker text (typed text containing emoji) handled c
 	assert.equal(segs[1].kind, "paste");
 	assert.equal(segs[2].kind, "typed");
 	assert.equal(segs[2].text, "\n🎉");
+});
+
+// ---------------------------------------------------------------------------
+// Paste size floor (minPasteBytes)
+//
+// Every captured paste costs the model a reference (~27 tokens) plus a `read`
+// tool call (~44 tokens) before any content arrives.  Below the floor, leaving
+// the paste inline is strictly cheaper than capturing it and reading it back.
+// ---------------------------------------------------------------------------
+
+test("paste floor: patcher default leaves a small paste inline (no files written)", () => {
+	const { root, parent } = tmpRoot();
+	try {
+		const pasteContent = "short pasted snippet\n".repeat(15); // ~330 bytes
+		const pastes = new Map([[1, pasteContent]]);
+		const markerText = "Review:\n[paste #1 +15 lines]\nThanks";
+
+		const editor = fakeEditor(pastes, markerText);
+		// No minPasteBytes → uses DEFAULT_MIN_PASTE_BYTES (4 KiB).
+		patchEditorForSegmentedPaste(editor, { root });
+		editor.submitValue();
+
+		const submitted = editor.getSubmittedText();
+
+		// Markers expanded inline, exactly as if pi-pasteboard were not installed.
+		assert.ok(!submitted.includes("[paste saved:"));
+		assert.ok(submitted.includes("short pasted snippet"));
+		assert.ok(submitted.startsWith("Review:"));
+		assert.ok(submitted.endsWith("Thanks"));
+
+		// Nothing was written to disk: no submission dir, no manifest, no files.
+		assert.equal(existsSync(join(root, "submissions")), false);
+	} finally {
+		rm(parent, { recursive: true, force: true }).catch(() => undefined);
+	}
+});
+
+test("paste floor: patcher captures a paste at or above the floor", () => {
+	const { root, parent } = tmpRoot();
+	try {
+		const pasteContent = "x".repeat(8192); // 8 KiB, above the 4 KiB default
+		const pastes = new Map([[1, pasteContent]]);
+		const markerText = "Review:\n[paste #1 8192 chars]";
+
+		const editor = fakeEditor(pastes, markerText);
+		patchEditorForSegmentedPaste(editor, { root });
+		editor.submitValue();
+
+		const submitted = editor.getSubmittedText();
+		assert.ok(submitted.includes("[paste saved:"));
+		assert.ok(!submitted.includes("xxxxxxxxxx"));
+	} finally {
+		rm(parent, { recursive: true, force: true }).catch(() => undefined);
+	}
+});
+
+test("paste floor: boundary is inclusive (bytes == floor is captured)", () => {
+	const { root, parent } = tmpRoot();
+	try {
+		const pasteContent = "y".repeat(2048);
+		const pastes = new Map([[1, pasteContent]]);
+		const markerText = "[paste #1 2048 chars]";
+
+		const editor = fakeEditor(pastes, markerText);
+		patchEditorForSegmentedPaste(editor, { root, minPasteBytes: 2048 });
+		editor.submitValue();
+
+		assert.ok(editor.getSubmittedText().includes("[paste saved:"));
+	} finally {
+		rm(parent, { recursive: true, force: true }).catch(() => undefined);
+	}
+});
+
+test("paste floor: minPasteBytes 0 restores capture-everything behaviour", () => {
+	const { root, parent } = tmpRoot();
+	try {
+		const pastes = new Map([[1, "tiny\n"]]);
+		const markerText = "[paste #1 +1 lines]";
+
+		const editor = fakeEditor(pastes, markerText);
+		patchEditorForSegmentedPaste(editor, { root, minPasteBytes: 0 });
+		editor.submitValue();
+
+		assert.ok(editor.getSubmittedText().includes("[paste saved:"));
+	} finally {
+		rm(parent, { recursive: true, force: true }).catch(() => undefined);
+	}
+});
+
+test("paste floor: segmenter reports below-min-paste-bytes without writing anything", () => {
+	const { root, parent } = tmpRoot();
+	try {
+		const pastes = new Map([[1, "small\n"]]);
+		const result = processSegmentedPastes("[paste #1 +1 lines]", pastes, {
+			root,
+			minPasteBytes: 4096,
+		});
+
+		assert.equal(result.error, "below-min-paste-bytes");
+		assert.equal(result.transformedText, null);
+		assert.equal(result.pasteBytes, 6);
+		assert.equal(result.minPasteBytes, 4096);
+		assert.equal(existsSync(join(root, "submissions")), false);
+	} finally {
+		rm(parent, { recursive: true, force: true }).catch(() => undefined);
+	}
+});
+
+test("paste floor: only referenced paste segments count toward the floor", () => {
+	const { root, parent } = tmpRoot();
+	try {
+		// Paste 2 is huge but its marker was deleted from the text by the user,
+		// so it never reaches the model and must not push us over the floor.
+		const pastes = new Map([
+			[1, "small\n"],
+			[2, "z".repeat(100_000)],
+		]);
+		const result = processSegmentedPastes("[paste #1 +1 lines]", pastes, {
+			root,
+			minPasteBytes: 4096,
+		});
+
+		assert.equal(result.error, "below-min-paste-bytes");
+		assert.equal(result.pasteBytes, 6);
+	} finally {
+		rm(parent, { recursive: true, force: true }).catch(() => undefined);
+	}
+});
+
+test("paste floor: typed text does not count toward the floor", () => {
+	const { root, parent } = tmpRoot();
+	try {
+		const pastes = new Map([[1, "small\n"]]);
+		const typed = "t".repeat(50_000);
+		const result = processSegmentedPastes(`${typed}[paste #1 +1 lines]`, pastes, {
+			root,
+			minPasteBytes: 4096,
+		});
+
+		assert.equal(result.error, "below-min-paste-bytes");
+		assert.equal(result.pasteBytes, 6);
+	} finally {
+		rm(parent, { recursive: true, force: true }).catch(() => undefined);
+	}
+});
+
+test("paste floor: multiple small pastes are summed", () => {
+	const { root, parent } = tmpRoot();
+	try {
+		const chunk = "a".repeat(1500);
+		const pastes = new Map([
+			[1, chunk],
+			[2, chunk],
+			[3, chunk],
+		]);
+		const result = processSegmentedPastes(
+			"[paste #1 1500 chars][paste #2 1500 chars][paste #3 1500 chars]",
+			pastes,
+			{ root, minPasteBytes: 4096 },
+		);
+
+		// 4500 bytes total → above the 4096 floor → captured
+		assert.equal(result.error, undefined);
+		assert.equal(result.pasteBytes, undefined);
+		assert.equal(result.manifest.segments.filter((s) => s.kind === "paste").length, 3);
+	} finally {
+		rm(parent, { recursive: true, force: true }).catch(() => undefined);
+	}
+});
+
+test("paste floor: missing marker maps to 0 bytes and never reaches the floor alone", () => {
+	const { root, parent } = tmpRoot();
+	try {
+		// Marker present in text but absent from the pastes Map → nothing to save.
+		const result = processSegmentedPastes("[paste #7 +3 lines]", new Map(), {
+			root,
+			minPasteBytes: 1,
+		});
+
+		assert.equal(result.error, "below-min-paste-bytes");
+		assert.equal(result.pasteBytes, 0);
+
+		// With the floor disabled the missing paste is still recorded (with
+		// fallbackReason) rather than silently dropped.
+		const captured = processSegmentedPastes("[paste #7 +3 lines]", new Map(), {
+			root,
+			minPasteBytes: 0,
+		});
+		assert.equal(captured.manifest.segments[0].fallbackReason, "paste-marker-missing-from-map");
+	} finally {
+		rm(parent, { recursive: true, force: true }).catch(() => undefined);
+	}
 });

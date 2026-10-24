@@ -63,7 +63,10 @@ export default function (pi: ExtensionAPI) {
 					editor = new CustomEditorClass(tui, theme, keybindings);
 				}
 
-				return patchEditorForSegmentedPaste(editor, { root: options.root });
+				return patchEditorForSegmentedPaste(editor, {
+					root: options.root,
+					minPasteBytes: options.minPasteBytes,
+				});
 			});
 
 			// Let the user know which mode is active.  The notification is
