@@ -83,7 +83,7 @@ test("config: file values are applied", () => {
 		minPasteBytes: 8192,
 		maxSegments: 5,
 		ttlMs: 60_000,
-		inlineFormat: "fenced",
+		inlineFormat: "stock",
 		annotatePasteSize: false,
 		debug: true,
 	});
@@ -97,7 +97,7 @@ test("config: file values are applied", () => {
 			minPasteBytes: 8192,
 			maxSegments: 5,
 			ttlMs: 60_000,
-			inlineFormat: "fenced",
+			inlineFormat: "stock",
 			annotatePasteSize: false,
 			debug: true,
 		});
@@ -411,7 +411,7 @@ test("config: presentation defaults", () => {
 });
 
 test("config: inlineFormat accepts the supported formats from file and env", () => {
-	for (const format of ["stock", "spaced", "fenced"]) {
+	for (const format of ["stock", "spaced"]) {
 		const { dir, path } = configWith({ inlineFormat: format });
 		try {
 			assert.equal(resolve(path).options.inlineFormat, format);
@@ -428,10 +428,10 @@ test("config: invalid inlineFormat warns and keeps the previous value", () => {
 		const { options, warnings } = resolve(path);
 		assert.equal(options.inlineFormat, "spaced");
 		assert.equal(warnings.length, 1);
-		assert.match(warnings[0], /"inlineFormat" must be one of stock, spaced, fenced/);
+		assert.match(warnings[0], /"inlineFormat" must be one of stock, spaced/);
 
 		// Environment invalid → falls back to the file value, not the default.
-		const fromFile = configWith({ inlineFormat: "fenced" });
+		const fromFile = configWith({ inlineFormat: "stock" });
 		try {
 			const envWarn = [];
 			const { options: opts } = resolveOptions({
@@ -439,7 +439,7 @@ test("config: invalid inlineFormat warns and keeps the previous value", () => {
 				env: { PI_PASTEBOARD_INLINE_FORMAT: "yaml" },
 				warn: (m) => envWarn.push(m),
 			});
-			assert.equal(opts.inlineFormat, "fenced");
+			assert.equal(opts.inlineFormat, "stock");
 			assert.equal(envWarn.length, 1);
 		} finally {
 			rmSync(fromFile.dir, { recursive: true, force: true });

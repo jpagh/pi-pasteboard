@@ -1290,14 +1290,21 @@ test("inline format: stock reproduces Pi's in-place expansion exactly", () => {
 	}
 });
 
-test("inline format: fenced delimits the paste", () => {
+test("inline format: an unsupported format falls back to stock expansion", () => {
 	const { root, parent } = tmpRoot();
 	try {
-		const editor = fakeEditor(new Map([[1, "const a = 1;"]]), "Review: [paste #1 12 chars] done");
-		patchEditorForSegmentedPaste(editor, { root, inlineFormat: "fenced" });
-		editor.submitValue();
+		const content = "alpha\nbeta";
+		const markerText = "Review this: [paste #1 +2 lines] thanks";
 
-		assert.equal(editor.getSubmittedText(), "Review: \n\n```\nconst a = 1;\n```\n\ndone");
+		const stock = fakeEditor(new Map([[1, content]]), markerText);
+		stock.submitValue();
+
+		const patched = fakeEditor(new Map([[1, content]]), markerText);
+		// "fenced" is no longer supported; a stale config must not break submit.
+		patchEditorForSegmentedPaste(patched, { root, inlineFormat: "fenced" });
+		patched.submitValue();
+
+		assert.equal(patched.getSubmittedText(), stock.getSubmittedText());
 	} finally {
 		rm(parent, { recursive: true, force: true }).catch(() => undefined);
 	}

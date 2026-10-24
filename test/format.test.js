@@ -93,36 +93,17 @@ test("expandInlinePastes: empty paste content does not corrupt the text", () => 
 });
 
 // ---------------------------------------------------------------------------
-// Inline expansion: fencing
-// ---------------------------------------------------------------------------
-
-test("expandInlinePastes: fenced wraps the paste in backticks", () => {
-	const result = expandInlinePastes([typed("Review:"), paste("const a = 1;"), typed("ok")], "fenced");
-	assert.equal(result, "Review:\n\n```\nconst a = 1;\n```\n\nok");
-});
-
-test("expandInlinePastes: fence grows past backticks inside the paste", () => {
-	const content = "example:\n```js\nconst a = 1;\n```";
-	const result = expandInlinePastes([paste(content)], "fenced");
-	assert.ok(result.startsWith("````\n"), `got: ${result.slice(0, 20)}`);
-	assert.ok(result.endsWith("\n````"));
-	// The inner fence survives intact.
-	assert.ok(result.includes("```js"));
-});
-
-test("expandInlinePastes: empty paste in fenced mode still yields a valid fence", () => {
-	assert.equal(expandInlinePastes([paste("")], "fenced"), "```\n\n```");
-});
-
-// ---------------------------------------------------------------------------
 // Contract
 // ---------------------------------------------------------------------------
 
 test("expandInlinePastes: rejects formats it cannot render", () => {
 	assert.throws(() => expandInlinePastes([paste("x")], "stock"), /unsupported format/);
 	assert.throws(() => expandInlinePastes([paste("x")], "yaml"), /unsupported format/);
+	// Fencing was deliberately dropped: it wrapped the paste in ``` markers and
+	// gained nothing over blank-line separation.
+	assert.throws(() => expandInlinePastes([paste("x")], "fenced"), /unsupported format/);
 });
 
-test("INLINE_FORMATS: exposes stock, spaced and fenced", () => {
-	assert.deepEqual(INLINE_FORMATS, ["stock", "spaced", "fenced"]);
+test("INLINE_FORMATS: exposes only stock and spaced", () => {
+	assert.deepEqual(INLINE_FORMATS, ["stock", "spaced"]);
 });

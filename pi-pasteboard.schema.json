@@ -49,11 +49,10 @@
       "type": "string",
       "enum": [
         "stock",
-        "spaced",
-        "fenced"
+        "spaced"
       ],
       "default": "spaced",
-      "description": "Layout of a paste that stays inline (below minPasteBytes). \"stock\" = Pi's in-place expansion; \"spaced\" = own block with a blank line either side; \"fenced\" = spaced plus a code fence. Overridden by PI_PASTEBOARD_INLINE_FORMAT."
+      "description": "Layout of a paste that stays inline (below minPasteBytes). \"stock\" = Pi's in-place expansion; \"spaced\" = its own block with a blank line either side. Overridden by PI_PASTEBOARD_INLINE_FORMAT."
     },
     "annotatePasteSize": {
       "type": "boolean",

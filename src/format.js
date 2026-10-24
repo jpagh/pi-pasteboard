@@ -1,6 +1,6 @@
 import { DEFAULT_INLINE_FORMAT } from "./constants.js";
 
-export const INLINE_FORMATS = ["stock", "spaced", "fenced"];
+export const INLINE_FORMATS = ["stock", "spaced"];
 
 /**
  * Human-readable byte size, mirroring Pi's own formatSize() so a reference
@@ -23,26 +23,9 @@ export function describePaste(bytes, lines) {
 	return `${lines} ${lines === 1 ? "line" : "lines"}, ${formatPasteSize(bytes)}`;
 }
 
-/**
- * A fence longer than the longest backtick run in the content, so pasted
- * markdown cannot terminate its own fence.
- */
-function fenceFor(content) {
-	let longest = 0;
-	for (const match of content.matchAll(/`+/g)) {
-		longest = Math.max(longest, match[0].length);
-	}
-	return "`".repeat(Math.max(3, longest + 1));
-}
-
 /** Render one paste as a self-contained block (no surrounding blank lines). */
-function renderBlock(content, format) {
-	const body = String(content ?? "").replace(/\n+$/, "");
-	if (format === "fenced") {
-		const fence = fenceFor(body);
-		return `${fence}\n${body}\n${fence}`;
-	}
-	return body;
+function renderBlock(content) {
+	return String(content ?? "").replace(/\n+$/, "");
 }
 
 /** Newlines needed before a block so it starts after a blank line. */
@@ -66,18 +49,17 @@ function gapAfterPaste(text) {
  *
  * Pi's own expansion substitutes content in place, so a paste glued to typed
  * text on either side reads as one run-on paragraph.  This keeps each paste on
- * its own block, separated by a blank line, and (for "fenced") delimited so the
- * model can tell where the paste starts and stops.
+ * its own block, separated from the surrounding text by a blank line.
  *
  * Typed text is preserved verbatim apart from horizontal whitespace directly
  * after a paste, where the indentation is an artifact of the marker position.
  *
  * @param {Array<{kind:string, text:string}>} segments  From parseSegments().
- * @param {"spaced"|"fenced"} format
+ * @param {"spaced"} format
  * @returns {string}
  */
 export function expandInlinePastes(segments, format = DEFAULT_INLINE_FORMAT) {
-	if (format !== "spaced" && format !== "fenced") {
+	if (format !== "spaced") {
 		throw new Error(`expandInlinePastes: unsupported format "${format}"`);
 	}
 
@@ -86,7 +68,7 @@ export function expandInlinePastes(segments, format = DEFAULT_INLINE_FORMAT) {
 
 	for (const segment of segments) {
 		if (segment.kind === "paste") {
-			const block = renderBlock(segment.text, format);
+			const block = renderBlock(segment.text);
 			// An empty paste contributes no content, but it was still a boundary
 			// between typed text: keep the separation, drop the stray blank line.
 			if (block !== "") {

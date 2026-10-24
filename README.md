@@ -97,7 +97,7 @@ The `$schema` line is optional and only feeds editor autocomplete; use the URL a
 | `minPasteBytes` | `PI_PASTEBOARD_MIN_PASTE_BYTES` | `4096` | v2 only: total referenced paste bytes below which pastes stay inline. `0` captures every paste. |
 | `maxSegments` | `PI_PASTEBOARD_MAX_SEGMENTS` | `50` | Maximum number of parsed segments (typed **and** paste) in one submission; above it v2 declines and falls back to v1 |
 | `ttlMs` | `PI_PASTEBOARD_TTL_MS` | `604800000` (7 days) | Retention period for paste files and submission dirs |
-| `inlineFormat` | `PI_PASTEBOARD_INLINE_FORMAT` | `spaced` | How a paste that stays inline appears in the prompt: `stock`, `spaced` or `fenced` |
+| `inlineFormat` | `PI_PASTEBOARD_INLINE_FORMAT` | `spaced` | How a paste that stays inline appears in the prompt: `stock` or `spaced` |
 | `annotatePasteSize` | `PI_PASTEBOARD_ANNOTATE_SIZE` | `true` | Append `(812 lines, 45.6KB)` to each `[paste saved: …]` reference |
 | `debug` | `PI_PASTEBOARD_DEBUG` | `false` | Emit debug-level diagnostics to stderr |
 
@@ -121,7 +121,6 @@ Line and byte counts are cheap (~10 tokens) and turn "read the file" into an inf
 |---|---|
 | `stock` | Pi's behaviour, unchanged: `Review this: config:…  thoughts?` |
 | `spaced` *(default)* | Paste becomes its own block with a blank line either side |
-| `fenced` | `spaced`, plus a code fence sized to survive pasted markdown |
 
 ```
 Review this:
@@ -132,7 +131,7 @@ config:
 thoughts?
 ```
 
-`fenced` adds ``` fences around the block; the fence is made longer than the longest backtick run inside the paste, so pasting markdown with its own code blocks cannot terminate it early. Typed text is otherwise preserved verbatim — the only edit is horizontal whitespace directly after a paste, which is an artifact of where the marker sat.
+Typed text is otherwise preserved verbatim — the only edit is horizontal whitespace directly after a paste, which is an artifact of where the marker sat. There is deliberately no code-fence mode: blank-line separation already marks the block boundary, and fences have to be sized against backticks inside the paste to avoid terminating early.
 
 Formatting never costs content: if a marker is missing from Pi's paste map (stock expansion would leave the marker text in place) or the editor state is unavailable, the submission falls back to `stock` behaviour.
 

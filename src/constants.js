@@ -15,7 +15,6 @@ export const DEFAULT_MAX_SEGMENTS = 50;
 // How an inline (below-floor) paste appears in the submitted prompt.
 //   "stock"  — Pi's own expansion: content substituted in place, no spacing.
 //   "spaced" — paste on its own block, one blank line either side.
-//   "fenced" — "spaced", plus a ``` fence sized to survive pasted markdown.
 export const DEFAULT_INLINE_FORMAT = "spaced";
 // Append "812 lines, 45.6KB" to [paste saved: …] so the model can choose
 // between grep and a full read.
