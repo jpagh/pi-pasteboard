@@ -1175,3 +1175,78 @@ test("processSegmentedPastes: maxSegments option overrides DEFAULT_MAX_SEGMENTS"
 		rm(parent, { recursive: true, force: true }).catch(() => undefined);
 	}
 });
+
+test("paste floor: declined submission is byte-identical to an unpatched editor", () => {
+	// The substring assertions in the test above could miss duplicated or
+	// reordered content.  Build the same submission twice — one patched, one
+	// not — and compare the complete submitted strings.
+	const { root, parent } = tmpRoot();
+	try {
+		const paste1 = "first pasted block\n".repeat(6);
+		const paste2 = "second pasted block\n".repeat(4);
+		const markerText =
+			"Lead in\n[paste #1 +6 lines]\nmiddle typed text\n[paste #2 +4 lines]\ntrailing";
+
+		const stock = fakeEditor(new Map([[1, paste1], [2, paste2]]), markerText);
+		stock.submitValue();
+		const expected = stock.getSubmittedText();
+
+		const patched = fakeEditor(new Map([[1, paste1], [2, paste2]]), markerText);
+		patchEditorForSegmentedPaste(patched, { root }); // default floor declines
+		patched.submitValue();
+
+		assert.equal(patched.getSubmittedText(), expected);
+		assert.equal(existsSync(join(root, "submissions")), false);
+	} finally {
+		rm(parent, { recursive: true, force: true }).catch(() => undefined);
+	}
+});
+
+test("paste floor: multibyte content is measured in bytes, not characters", () => {
+	const { root, parent } = tmpRoot();
+	try {
+		// "é" is 2 bytes in UTF-8: 1500 chars = 3000 bytes (below 4096),
+		// 2100 chars = 4200 bytes (above).  A char-count floor would get both wrong.
+		const below = "é".repeat(1500);
+		const above = "é".repeat(2100);
+
+		const declined = fakeEditor(new Map([[1, below]]), "[paste #1 1500 chars]");
+		patchEditorForSegmentedPaste(declined, { root, minPasteBytes: 4096 });
+		declined.submitValue();
+		assert.ok(!declined.getSubmittedText().includes("[paste saved:"));
+
+		const captured = fakeEditor(new Map([[1, above]]), "[paste #1 2100 chars]");
+		patchEditorForSegmentedPaste(captured, { root, minPasteBytes: 4096 });
+		captured.submitValue();
+		assert.ok(captured.getSubmittedText().includes("[paste saved:"));
+	} finally {
+		rm(parent, { recursive: true, force: true }).catch(() => undefined);
+	}
+});
+
+test("paste floor: maxSegments is forwarded through the patcher", () => {
+	const { root, parent } = tmpRoot();
+	try {
+		// maxSegments counts typed segments too: typed + 1 paste + typed = 3.
+		const thirds = new Map([[1, "z".repeat(8192)]]);
+		const markerText = "before\n[paste #1 8192 chars]\nafter";
+
+		const capped = fakeEditor(new Map(thirds), markerText);
+		patchEditorForSegmentedPaste(capped, { root, maxSegments: 2 });
+		capped.submitValue();
+
+		// Declines: full paste content inline, nothing written.
+		const submitted = capped.getSubmittedText();
+		assert.ok(submitted.includes("z".repeat(8192)));
+		assert.ok(!submitted.includes("[paste saved:"));
+		assert.equal(existsSync(join(root, "submissions")), false);
+
+		// Same submission with a cap of 3 is captured.
+		const allowed = fakeEditor(new Map(thirds), markerText);
+		patchEditorForSegmentedPaste(allowed, { root, maxSegments: 3 });
+		allowed.submitValue();
+		assert.ok(allowed.getSubmittedText().includes("[paste saved:"));
+	} finally {
+		rm(parent, { recursive: true, force: true }).catch(() => undefined);
+	}
+});

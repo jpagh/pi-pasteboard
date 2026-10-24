@@ -81,19 +81,21 @@ The config file is `pi-pasteboard.json` in Pi's agent directory — `$PI_CODING_
 
 ```json
 {
-  "$schema": "./pi-pasteboard.schema.json",
+  "$schema": "https://raw.githubusercontent.com/lkraider/pi-pasteboard/main/pi-pasteboard.schema.json",
   "minPasteBytes": 8192,
   "maxSegments": 20,
   "debug": false
 }
 ```
 
+The `$schema` line is optional and only feeds editor autocomplete; use the URL above, or a path to a local copy of [`pi-pasteboard.schema.json`](pi-pasteboard.schema.json) (it is not installed next to the config file).
+
 | Key | Environment variable | Default | Purpose |
 |-----|---------------------|---------|---------|
 | `root` | `PI_PASTEBOARD_ROOT` | `/tmp/pi-pasteboard` | Storage root directory |
 | `minBytes` | `PI_PASTEBOARD_MIN_BYTES` | `32768` | Minimum byte threshold for v1 whole-input capture |
 | `minPasteBytes` | `PI_PASTEBOARD_MIN_PASTE_BYTES` | `4096` | v2 only: total referenced paste bytes below which pastes stay inline. `0` captures every paste. |
-| `maxSegments` | `PI_PASTEBOARD_MAX_SEGMENTS` | `50` | Maximum segment files written per submission; above it v2 falls back to v1 |
+| `maxSegments` | `PI_PASTEBOARD_MAX_SEGMENTS` | `50` | Maximum number of parsed segments (typed **and** paste) in one submission; above it v2 declines and falls back to v1 |
 | `ttlMs` | `PI_PASTEBOARD_TTL_MS` | `604800000` (7 days) | Retention period for paste files and submission dirs |
 | `debug` | `PI_PASTEBOARD_DEBUG` | `false` | Emit debug-level diagnostics to stderr |
 
@@ -117,9 +119,20 @@ If a user types literal `[paste #N ...]` text AND a matching paste ID exists in 
 
 ### Small pastes (below the capture floor)
 
-Pi creates a paste marker above 10 lines or 1000 chars, so a marker can represent as little as ~50 tokens of content. Capturing it is *not* free: the `[paste saved: …]` reference costs ~27 tokens and the follow-up `read` tool call another ~44 before any content arrives, and the read result then occupies context exactly like the inline paste would have — it is not evicted or amortised.
+Pi creates a paste marker above 10 lines or 1000 chars, so a marker can stand for a very small paste. Capturing it is *not* free: the `[paste saved: …]` reference and the follow-up `read` tool call both cost tokens before any content arrives, and the read result then occupies context exactly like the inline paste would have — `read` has no result cache or dedupe, and nothing evicts it.
 
-So for anything the agent reads in full, capture is a net loss of roughly 70–80 tokens, plus a round trip. `PI_PASTEBOARD_MIN_PASTE_BYTES` (default 4 KiB) keeps those pastes inline. Only *referenced* paste content counts toward the floor: typed text does not, and neither does a paste whose marker the user deleted, since it never reaches the model. At or above the floor the file reference starts to pay off, because the agent can `grep`/`read` selectively instead of paying for the whole paste.
+The numbers below are **illustrative estimates** (roughly 3.5 chars/token for prose and code, tighter for hex paths) rather than tokenizer measurements; they are here to show the shape of the trade-off, not to predict a bill:
+
+| | estimated tokens |
+|---|---|
+| inline paste (~600 chars) | ~170 |
+| `[paste saved: <path>]` with a UUID | ~27 |
+| `read` tool call (the path is repeated in its JSON args) | ~44 |
+| tool result (same bytes as the paste) | ~170 |
+
+The consequence that matters: **a full read is never cheaper than the inline paste.** Capture only wins when the agent reads part of the paste — a `grep` that returns a handful of matching lines — instead of reading it whole. `PI_PASTEBOARD_MIN_PASTE_BYTES` (default 4 KiB) therefore keeps pastes below the size where selective reading is plausible inline, and bounds the downside when the agent reads everything anyway.
+
+Only *referenced* paste content counts toward the floor: typed text does not, and neither does a paste whose marker the user deleted, since it never reaches the model. The floor is **aggregate**, not per-paste — N small pastes that sum above it are captured even though each one alone would have been cheaper inline. Raise it if your prompts routinely carry many small pastes rather than one big one.
 
 Set `PI_PASTEBOARD_MIN_PASTE_BYTES=0` to capture every paste regardless of size (pre-threshold behaviour).
 
@@ -127,7 +140,7 @@ Set `PI_PASTEBOARD_MIN_PASTE_BYTES=0` to capture every paste regardless of size 
 
 Paste-segment files and the manifest are written **synchronously** inside the editor's `submitValue()` — the same call-path that runs the terminal render loop.  Each submission writes `N` paste files + one manifest.  On a local SSD with typical paste sizes (<1 MB each), this adds ~1–2 ms per file; a 5-paste submission might add <10 ms total, which is imperceptible.  On a slow or network filesystem the per-file latency could reach tens of milliseconds.
 
-To bound the worst case, the segmenter caps submissions at **50 segments** (files).  Exceeding the cap causes the patcher to fall back to v1 whole-input capture (one file).  This is a hard guardrail — the submission is NOT silently corrupted; the original markers expand normally and the v1 `input`-event handler captures the expanded text.
+To bound the worst case, the segmenter caps submissions at **`maxSegments`** parsed segments (default 50; typed and paste segments both count).  Exceeding the cap causes the patcher to fall back to v1 whole-input capture (one file).  This is a hard guardrail — the submission is NOT silently corrupted; the original markers expand normally and the v1 `input`-event handler captures the expanded text.
 
 ### Runtime field fragility
 

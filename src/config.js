@@ -24,14 +24,29 @@ const INTEGER_FIELDS = {
 
 const KNOWN_KEYS = new Set(["$schema", "root", "debug", ...Object.keys(INTEGER_FIELDS)]);
 
-/** Directory holding Pi's per-user state (`PI_CODING_AGENT_DIR`, ~/.pi/agent). */
+/** Directory holding Pi's per-user state (`PI_CODING_AGENT_DIR`, ~/.pi/agent).
+ *
+ * Mirrors Pi's own `getAgentDir()`: the environment value goes through tilde
+ * expansion (`~`, `~/`, and `~\\` on Windows), so `PI_CODING_AGENT_DIR='~/.pi/agent-dev'`
+ * resolves to the same directory Pi uses rather than to a literal `~` path.
+ */
 export function agentDir(env = process.env) {
-	return env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent");
+	const override = env.PI_CODING_AGENT_DIR;
+	if (override) {
+		const expanded = expandTilde(override);
+		if (expanded !== "") return expanded;
+	}
+	return join(homedir(), ".pi", "agent");
 }
 
 /** Config file location; `PI_PASTEBOARD_CONFIG` overrides the default. */
 export function defaultConfigPath(env = process.env) {
-	return env.PI_PASTEBOARD_CONFIG || join(agentDir(env), CONFIG_FILE_NAME);
+	const override = env.PI_PASTEBOARD_CONFIG;
+	if (override) {
+		const expanded = expandTilde(override);
+		if (expanded !== "") return expanded;
+	}
+	return join(agentDir(env), CONFIG_FILE_NAME);
 }
 
 /** Hard-coded defaults.  Everything is overridable by file or environment. */
@@ -161,6 +176,14 @@ export function resolveOptions(overrides = {}) {
 	}
 
 	return { options, configPath, configFound: file.found };
+}
+
+function expandTilde(input) {
+	const home = homedir();
+	if (input === "~") return home;
+	if (input.startsWith("~/")) return join(home, input.slice(2));
+	if (process.platform === "win32" && input.startsWith("~\\")) return join(home, input.slice(2));
+	return input;
 }
 
 function isValidInteger(value, min) {

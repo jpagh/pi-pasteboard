@@ -32,7 +32,7 @@
       "type": "integer",
       "minimum": 1,
       "default": 50,
-      "description": "Maximum number of segment files written synchronously per submission; larger submissions fall back to v1 whole-input capture. Overridden by PI_PASTEBOARD_MAX_SEGMENTS."
+      "description": "Maximum number of parsed segments (typed and paste) in one submission; above it v2 declines and falls back to v1 whole-input capture. Overridden by PI_PASTEBOARD_MAX_SEGMENTS."
     },
     "ttlMs": {
       "type": "integer",

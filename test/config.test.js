@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import test from "node:test";
 
 import {
@@ -340,6 +340,56 @@ test("config: resolveOptions without a configPath consults the environment path"
 		assert.equal(configPath, path);
 		assert.equal(configFound, true);
 		assert.equal(options.minPasteBytes, 1234);
+		assert.deepEqual(warnings, []);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+// ---------------------------------------------------------------------------
+// Agent-directory normalization (regression: Pi expands tildes, so must we)
+// ---------------------------------------------------------------------------
+
+test("config: PI_CODING_AGENT_DIR tilde is expanded like Pi's getAgentDir()", () => {
+	const home = homedir();
+
+	// Verbose form and bare "~" both resolve under the home directory.
+	assert.equal(agentDir({ PI_CODING_AGENT_DIR: "~/.pi/agent-dev" }), join(home, ".pi/agent-dev"));
+	assert.equal(agentDir({ PI_CODING_AGENT_DIR: "~" }), home);
+	assert.equal(
+		defaultConfigPath({ PI_CODING_AGENT_DIR: "~/custom-agent" }),
+		join(home, "custom-agent", CONFIG_FILE_NAME),
+	);
+
+	// Absolute and relative paths are passed through unchanged.
+	assert.equal(agentDir({ PI_CODING_AGENT_DIR: "/abs/agent" }), "/abs/agent");
+	assert.equal(agentDir({ PI_CODING_AGENT_DIR: "rel/agent" }), "rel/agent");
+});
+
+test("config: PI_PASTEBOARD_CONFIG tilde is expanded", () => {
+	assert.equal(
+		defaultConfigPath({ PI_PASTEBOARD_CONFIG: "~/configs/pi-pasteboard.json" }),
+		join(homedir(), "configs/pi-pasteboard.json"),
+	);
+});
+
+test("config: tilde-prefixed config path is actually read, not silently missed", () => {
+	// Regression: before normalization this path resolved to a literal "~/..."
+	// directory, the ENOENT was swallowed, and valid settings were ignored.
+	const home = homedir();
+	const dirName = `.pi-pasteboard-test-${process.pid}-${Date.now()}`;
+	const dir = join(home, dirName);
+	mkdirSync(dir, { recursive: true });
+	const relPath = `~/${dirName}/${CONFIG_FILE_NAME}`;
+	writeFileSync(join(dir, CONFIG_FILE_NAME), JSON.stringify({ minPasteBytes: 777 }));
+	try {
+		const warnings = [];
+		const { options, configFound } = resolveOptions({
+			env: { PI_PASTEBOARD_CONFIG: relPath },
+			warn: (m) => warnings.push(m),
+		});
+		assert.equal(configFound, true);
+		assert.equal(options.minPasteBytes, 777);
 		assert.deepEqual(warnings, []);
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
