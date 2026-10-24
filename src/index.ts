@@ -88,6 +88,8 @@ export default function (pi: ExtensionAPI) {
 					root: options.root,
 					minPasteBytes: options.minPasteBytes,
 					maxSegments: options.maxSegments,
+					annotatePasteSize: options.annotatePasteSize,
+					inlineFormat: options.inlineFormat,
 				});
 			});
 

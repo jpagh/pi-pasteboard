@@ -1,7 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { DEFAULT_MAX_SEGMENTS, DEFAULT_ROOT, PASTE_MARKER_RE, SUBMISSIONS_SUBDIR } from "./constants.js";
+import {
+	DEFAULT_ANNOTATE_PASTE_SIZE,
+	DEFAULT_MAX_SEGMENTS,
+	DEFAULT_ROOT,
+	PASTE_MARKER_RE,
+	SUBMISSIONS_SUBDIR,
+} from "./constants.js";
+import { describePaste } from "./format.js";
 
 /**
  * Parse paste-marker-bearing text into ordered segments.
@@ -63,18 +70,20 @@ export function parseSegments(markerText, pastes) {
  *
  * @param {string} markerText  Raw editor text with unexpanded paste markers.
  * @param {Map<number,string>} pastes  Runtime paste-id → content Map.
- * @param {{root?:string, minPasteBytes?:number, maxSegments?:number}} [options]
+ * @param {{root?:string, minPasteBytes?:number, maxSegments?:number, annotatePasteSize?:boolean}} [options]
  *   `minPasteBytes` is a size floor below which no files are written (returns
  *   `error: "below-min-paste-bytes"`); it defaults to 0 because the floor is a
  *   policy decision owned by the caller, not by segmenting itself.
  *   `maxSegments` bounds the synchronous writes this call performs and defaults
- *   to DEFAULT_MAX_SEGMENTS.
+ *   to DEFAULT_MAX_SEGMENTS.  `annotatePasteSize` appends "812 lines, 45.6KB"
+ *   to each reference so the model can choose grep over a full read.
  * @returns {{transformedText:string, submissionId:string, submissionDir:string, manifest:object}}
  */
 export function processSegmentedPastes(markerText, pastes, options = {}) {
 	const root = options.root ?? DEFAULT_ROOT;
 	const minPasteBytes = options.minPasteBytes ?? 0;
 	const maxSegments = options.maxSegments ?? DEFAULT_MAX_SEGMENTS;
+	const annotatePasteSize = options.annotatePasteSize ?? DEFAULT_ANNOTATE_PASTE_SIZE;
 	const segments = parseSegments(markerText, pastes);
 
 	// Guardrail: refuse to write an excessive number of segment files
@@ -86,6 +95,7 @@ export function processSegmentedPastes(markerText, pastes, options = {}) {
 			error: "too-many-segments",
 			segmentCount: segments.length,
 			maxAllowed: maxSegments,
+			segments,
 		};
 	}
 
@@ -104,6 +114,7 @@ export function processSegmentedPastes(markerText, pastes, options = {}) {
 			pasteBytes,
 			minPasteBytes,
 			segmentCount: segments.length,
+			segments,
 		};
 	}
 
@@ -139,7 +150,10 @@ export function processSegmentedPastes(markerText, pastes, options = {}) {
 
 			writeFileSync(pasteFile, content, { mode: 0o600 });
 
-			transformedParts.push(`[paste saved: ${pasteFile}]`);
+			const reference = annotatePasteSize
+				? `[paste saved: ${pasteFile} (${describePaste(bytes, lines)})]`
+				: `[paste saved: ${pasteFile}]`;
+			transformedParts.push(reference);
 
 			const entry = {
 				index: i,

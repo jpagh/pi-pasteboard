@@ -83,6 +83,8 @@ test("config: file values are applied", () => {
 		minPasteBytes: 8192,
 		maxSegments: 5,
 		ttlMs: 60_000,
+		inlineFormat: "fenced",
+		annotatePasteSize: false,
 		debug: true,
 	});
 	try {
@@ -95,6 +97,8 @@ test("config: file values are applied", () => {
 			minPasteBytes: 8192,
 			maxSegments: 5,
 			ttlMs: 60_000,
+			inlineFormat: "fenced",
+			annotatePasteSize: false,
 			debug: true,
 		});
 	} finally {
@@ -391,6 +395,91 @@ test("config: tilde-prefixed config path is actually read, not silently missed",
 		assert.equal(configFound, true);
 		assert.equal(options.minPasteBytes, 777);
 		assert.deepEqual(warnings, []);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+// ---------------------------------------------------------------------------
+// Presentation settings: inlineFormat, annotatePasteSize
+// ---------------------------------------------------------------------------
+
+test("config: presentation defaults", () => {
+	const options = defaultOptions();
+	assert.equal(options.inlineFormat, "spaced");
+	assert.equal(options.annotatePasteSize, true);
+});
+
+test("config: inlineFormat accepts the supported formats from file and env", () => {
+	for (const format of ["stock", "spaced", "fenced"]) {
+		const { dir, path } = configWith({ inlineFormat: format });
+		try {
+			assert.equal(resolve(path).options.inlineFormat, format);
+			assert.equal(resolve(path, { PI_PASTEBOARD_INLINE_FORMAT: format }).options.inlineFormat, format);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	}
+});
+
+test("config: invalid inlineFormat warns and keeps the previous value", () => {
+	const { dir, path } = configWith({ inlineFormat: "yaml" });
+	try {
+		const { options, warnings } = resolve(path);
+		assert.equal(options.inlineFormat, "spaced");
+		assert.equal(warnings.length, 1);
+		assert.match(warnings[0], /"inlineFormat" must be one of stock, spaced, fenced/);
+
+		// Environment invalid → falls back to the file value, not the default.
+		const fromFile = configWith({ inlineFormat: "fenced" });
+		try {
+			const envWarn = [];
+			const { options: opts } = resolveOptions({
+				configPath: fromFile.path,
+				env: { PI_PASTEBOARD_INLINE_FORMAT: "yaml" },
+				warn: (m) => envWarn.push(m),
+			});
+			assert.equal(opts.inlineFormat, "fenced");
+			assert.equal(envWarn.length, 1);
+		} finally {
+			rmSync(fromFile.dir, { recursive: true, force: true });
+		}
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("config: annotatePasteSize accepts booleans and env off-words", () => {
+	const { dir, path } = configWith({ annotatePasteSize: false });
+	try {
+		assert.equal(resolve(path).options.annotatePasteSize, false);
+		// Env can switch a file-set false back on.
+		assert.equal(resolve(path, { PI_PASTEBOARD_ANNOTATE_SIZE: "1" }).options.annotatePasteSize, true);
+
+		const on = configWith({ annotatePasteSize: true });
+		try {
+			for (const off of ["0", "false", "no", "off"]) {
+				assert.equal(
+					resolve(on.path, { PI_PASTEBOARD_ANNOTATE_SIZE: off }).options.annotatePasteSize,
+					false,
+					`input: ${off}`,
+				);
+			}
+		} finally {
+			rmSync(on.dir, { recursive: true, force: true });
+		}
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("config: non-boolean annotatePasteSize warns and keeps the default", () => {
+	const { dir, path } = configWith({ annotatePasteSize: "yes" });
+	try {
+		const { options, warnings } = resolve(path);
+		assert.equal(options.annotatePasteSize, true);
+		assert.equal(warnings.length, 1);
+		assert.match(warnings[0], /"annotatePasteSize" must be a boolean/);
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}

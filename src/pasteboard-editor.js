@@ -1,10 +1,13 @@
 import { processSegmentedPastes } from "./segmenter.js";
 import {
+	DEFAULT_ANNOTATE_PASTE_SIZE,
+	DEFAULT_INLINE_FORMAT,
 	DEFAULT_MAX_SEGMENTS,
 	DEFAULT_MIN_PASTE_BYTES,
 	DEFAULT_ROOT,
 	HAS_PASTE_MARKER_RE,
 } from "./constants.js";
+import { expandInlinePastes } from "./format.js";
 
 /**
  * Monkey-patch an editor instance so that `submitValue()` intercepts paste
@@ -17,7 +20,7 @@ import {
  *
  * @param {import("@earendil-works/pi-tui").Editor} editor  An Editor (or
  *   CustomEditor) instance freshly created by the editor factory.
- * @param {{root?:string, minPasteBytes?:number, maxSegments?:number}} [options]
+ * @param {{root?:string, minPasteBytes?:number, maxSegments?:number, annotatePasteSize?:boolean, inlineFormat?:string}} [options]
  * @returns {typeof editor}  The same instance, now patched.
  */
 export function patchEditorForSegmentedPaste(editor, options = {}) {
@@ -26,6 +29,9 @@ export function patchEditorForSegmentedPaste(editor, options = {}) {
 	// reference plus the follow-up read costs more than the inline paste.
 	const minPasteBytes = options.minPasteBytes ?? DEFAULT_MIN_PASTE_BYTES;
 	const maxSegments = options.maxSegments ?? DEFAULT_MAX_SEGMENTS;
+	const annotatePasteSize = options.annotatePasteSize ?? DEFAULT_ANNOTATE_PASTE_SIZE;
+	// Presentation policy for pastes that stay inline.
+	const inlineFormat = options.inlineFormat ?? DEFAULT_INLINE_FORMAT;
 
 	// Capture the original submitValue before we shadow it.
 	// TS declares submitValue as private but in compiled JS it is a regular
@@ -63,14 +69,19 @@ export function patchEditorForSegmentedPaste(editor, options = {}) {
 
 		// --- Segment and transform ---
 		try {
-			const result = processSegmentedPastes(markerText, pastes, { root, minPasteBytes, maxSegments });
+			const result = processSegmentedPastes(markerText, pastes, {
+				root,
+				minPasteBytes,
+				maxSegments,
+				annotatePasteSize,
+			});
 
 			// Not worth capturing — either the segment cap was exceeded or the
-			// pastes are too small to be worth a file.  Fall back to original
-			// behaviour so markers expand inline (and the v1 whole-input
-			// capture still takes over for genuinely large submissions).
+			// pastes are too small to be worth a file.  The paste stays inline,
+			// optionally reformatted so it reads as its own block instead of
+			// running into the typed text on either side.
 			if (!result?.transformedText) {
-				return originalSubmitValue();
+				return submitWithInlinePastes.call(this, result);
 			}
 
 			// Replace editor text with the transformed version.
@@ -98,6 +109,43 @@ export function patchEditorForSegmentedPaste(editor, options = {}) {
 
 		return originalSubmitValue();
 	};
+
+	/**
+	 * Expand this submission's paste markers in place, applying the configured
+	 * inline format.  Falls back to stock Pi expansion whenever reformatting
+	 * would lose information — `inlineFormat: "stock"`, a marker that is not in
+	 * the pastes Map (stock leaves such markers untouched), or unavailable
+	 * editor state.
+	 */
+	function submitWithInlinePastes(result) {
+		const segments = result?.segments;
+		if (inlineFormat === "stock" || !Array.isArray(segments)) {
+			return originalSubmitValue();
+		}
+		if (segments.some((segment) => segment.kind === "paste" && segment.missing)) {
+			return originalSubmitValue();
+		}
+
+		const stateLines = this.state?.lines;
+		if (!stateLines || !Array.isArray(stateLines)) {
+			return originalSubmitValue();
+		}
+
+		let expanded;
+		try {
+			expanded = expandInlinePastes(segments, inlineFormat);
+		} catch {
+			return originalSubmitValue();
+		}
+
+		this.state.lines = expanded.split("\n");
+		this.state.cursorLine = 0;
+		this.state.cursorCol = 0;
+		this.pastes.clear();
+		this.pasteCounter = 0;
+
+		return originalSubmitValue();
+	}
 
 	return editor;
 }

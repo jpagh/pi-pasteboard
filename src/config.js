@@ -2,12 +2,15 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
+	DEFAULT_ANNOTATE_PASTE_SIZE,
+	DEFAULT_INLINE_FORMAT,
 	DEFAULT_MAX_SEGMENTS,
 	DEFAULT_MIN_BYTES,
 	DEFAULT_MIN_PASTE_BYTES,
 	DEFAULT_ROOT,
 	DEFAULT_TTL_MS,
 } from "./constants.js";
+import { INLINE_FORMATS } from "./format.js";
 
 export const CONFIG_FILE_NAME = "pi-pasteboard.json";
 
@@ -22,7 +25,24 @@ const INTEGER_FIELDS = {
 	ttlMs: { env: "PI_PASTEBOARD_TTL_MS", min: 1 },
 };
 
-const KNOWN_KEYS = new Set(["$schema", "root", "debug", ...Object.keys(INTEGER_FIELDS)]);
+/** String settings constrained to a fixed set of values. */
+const ENUM_FIELDS = {
+	inlineFormat: { env: "PI_PASTEBOARD_INLINE_FORMAT", values: INLINE_FORMATS },
+};
+
+/** Boolean settings.  `offWords` lets the environment switch a file-set true off. */
+const BOOLEAN_FIELDS = {
+	debug: { env: "PI_PASTEBOARD_DEBUG" },
+	annotatePasteSize: { env: "PI_PASTEBOARD_ANNOTATE_SIZE" },
+};
+
+const KNOWN_KEYS = new Set([
+	"$schema",
+	"root",
+	...Object.keys(INTEGER_FIELDS),
+	...Object.keys(ENUM_FIELDS),
+	...Object.keys(BOOLEAN_FIELDS),
+]);
 
 /** Directory holding Pi's per-user state (`PI_CODING_AGENT_DIR`, ~/.pi/agent).
  *
@@ -57,6 +77,8 @@ export function defaultOptions() {
 		minPasteBytes: DEFAULT_MIN_PASTE_BYTES,
 		maxSegments: DEFAULT_MAX_SEGMENTS,
 		ttlMs: DEFAULT_TTL_MS,
+		inlineFormat: DEFAULT_INLINE_FORMAT,
+		annotatePasteSize: DEFAULT_ANNOTATE_PASTE_SIZE,
 		debug: false,
 	};
 }
@@ -113,11 +135,23 @@ export function loadConfigFile(configPath, warn = () => {}) {
 		}
 	}
 
-	if (parsed.debug !== undefined) {
-		if (typeof parsed.debug === "boolean") {
-			values.debug = parsed.debug;
+	for (const key of Object.keys(BOOLEAN_FIELDS)) {
+		const value = parsed[key];
+		if (value === undefined) continue;
+		if (typeof value === "boolean") {
+			values[key] = value;
 		} else {
-			warn(`${configPath}: "debug" must be a boolean; ignoring`);
+			warn(`${configPath}: "${key}" must be a boolean; ignoring`);
+		}
+	}
+
+	for (const [key, spec] of Object.entries(ENUM_FIELDS)) {
+		const value = parsed[key];
+		if (value === undefined) continue;
+		if (typeof value === "string" && spec.values.includes(value)) {
+			values[key] = value;
+		} else {
+			warn(`${configPath}: "${key}" must be one of ${spec.values.join(", ")}; ignoring`);
 		}
 	}
 
@@ -167,12 +201,27 @@ export function resolveOptions(overrides = {}) {
 
 	if (env.PI_PASTEBOARD_ROOT) options.root = env.PI_PASTEBOARD_ROOT;
 
-	// `0`/false/off turn debugging off again, so the environment can override
-	// `"debug": true` in the config file in both directions.  Bare presence
-	// (the historical `PI_PASTEBOARD_DEBUG=1`) still means on.
-	if (env.PI_PASTEBOARD_DEBUG !== undefined) {
-		const raw = env.PI_PASTEBOARD_DEBUG.trim();
-		if (raw !== "") options.debug = !/^(0|false|no|off)$/i.test(raw);
+	// `0`/false/off turn a boolean off again, so the environment can override
+	// `true` in the config file in both directions.  Bare presence (the
+	// historical `PI_PASTEBOARD_DEBUG=1`) still means on.
+	for (const [key, spec] of Object.entries(BOOLEAN_FIELDS)) {
+		const raw = env[spec.env];
+		if (raw === undefined) continue;
+		const text = raw.trim();
+		if (text === "") continue;
+		options[key] = !/^(0|false|no|off)$/i.test(text);
+	}
+
+	for (const [key, spec] of Object.entries(ENUM_FIELDS)) {
+		const raw = env[spec.env];
+		if (raw === undefined) continue;
+		const text = raw.trim();
+		if (text === "") continue;
+		if (spec.values.includes(text)) {
+			options[key] = text;
+		} else {
+			warn(`${spec.env}=${JSON.stringify(raw)} must be one of ${spec.values.join(", ")}; using ${options[key]}`);
+		}
 	}
 
 	return { options, configPath, configFound: file.found };

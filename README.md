@@ -97,9 +97,44 @@ The `$schema` line is optional and only feeds editor autocomplete; use the URL a
 | `minPasteBytes` | `PI_PASTEBOARD_MIN_PASTE_BYTES` | `4096` | v2 only: total referenced paste bytes below which pastes stay inline. `0` captures every paste. |
 | `maxSegments` | `PI_PASTEBOARD_MAX_SEGMENTS` | `50` | Maximum number of parsed segments (typed **and** paste) in one submission; above it v2 declines and falls back to v1 |
 | `ttlMs` | `PI_PASTEBOARD_TTL_MS` | `604800000` (7 days) | Retention period for paste files and submission dirs |
+| `inlineFormat` | `PI_PASTEBOARD_INLINE_FORMAT` | `spaced` | How a paste that stays inline appears in the prompt: `stock`, `spaced` or `fenced` |
+| `annotatePasteSize` | `PI_PASTEBOARD_ANNOTATE_SIZE` | `true` | Append `(812 lines, 45.6KB)` to each `[paste saved: …]` reference |
 | `debug` | `PI_PASTEBOARD_DEBUG` | `false` | Emit debug-level diagnostics to stderr |
 
 A JSON Schema ships as [`pi-pasteboard.schema.json`](pi-pasteboard.schema.json) for editor autocomplete and validation.
+
+### What a paste looks like in the prompt
+
+**Captured pastes** become a reference carrying the paste's size, so the model can judge whether it needs the whole thing:
+
+```
+Review this:
+[paste saved: /tmp/pi-pasteboard/submissions/<uuid>/paste-1.txt (812 lines, 45.6KB)]
+Thoughts?
+```
+
+Line and byte counts are cheap (~10 tokens) and turn "read the file" into an informed choice between `grep` and a full `read`. Set `"annotatePasteSize": false` to drop them.
+
+**Pastes below the capture floor** stay inline, and `inlineFormat` controls how they are laid out. Pi's own expansion substitutes content in place, which glues a paste to the text on either side:
+
+| `inlineFormat` | Result |
+|---|---|
+| `stock` | Pi's behaviour, unchanged: `Review this: config:…  thoughts?` |
+| `spaced` *(default)* | Paste becomes its own block with a blank line either side |
+| `fenced` | `spaced`, plus a code fence sized to survive pasted markdown |
+
+```
+Review this:
+
+config:
+  port: 3000
+
+thoughts?
+```
+
+`fenced` adds ``` fences around the block; the fence is made longer than the longest backtick run inside the paste, so pasting markdown with its own code blocks cannot terminate it early. Typed text is otherwise preserved verbatim — the only edit is horizontal whitespace directly after a paste, which is an artifact of where the marker sat.
+
+Formatting never costs content: if a marker is missing from Pi's paste map (stock expansion would leave the marker text in place) or the editor state is unavailable, the submission falls back to `stock` behaviour.
 
 ### Config file validation
 

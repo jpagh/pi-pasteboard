@@ -44,6 +44,21 @@
       "type": "boolean",
       "default": false,
       "description": "Emit debug-level diagnostics to stderr. Overridden by PI_PASTEBOARD_DEBUG (0/false/no/off disables)."
+    },
+    "inlineFormat": {
+      "type": "string",
+      "enum": [
+        "stock",
+        "spaced",
+        "fenced"
+      ],
+      "default": "spaced",
+      "description": "Layout of a paste that stays inline (below minPasteBytes). \"stock\" = Pi's in-place expansion; \"spaced\" = own block with a blank line either side; \"fenced\" = spaced plus a code fence. Overridden by PI_PASTEBOARD_INLINE_FORMAT."
+    },
+    "annotatePasteSize": {
+      "type": "boolean",
+      "default": true,
+      "description": "Append \"(812 lines, 45.6KB)\" to each [paste saved: ...] reference so the model can choose grep over a full read. Overridden by PI_PASTEBOARD_ANNOTATE_SIZE."
     }
   }
 }

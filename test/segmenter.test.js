@@ -1192,7 +1192,9 @@ test("paste floor: declined submission is byte-identical to an unpatched editor"
 		const expected = stock.getSubmittedText();
 
 		const patched = fakeEditor(new Map([[1, paste1], [2, paste2]]), markerText);
-		patchEditorForSegmentedPaste(patched, { root }); // default floor declines
+		// inlineFormat "stock" — this test is about the decline path itself,
+		// not the reformatting that the default "spaced" format applies.
+		patchEditorForSegmentedPaste(patched, { root, inlineFormat: "stock" });
 		patched.submitValue();
 
 		assert.equal(patched.getSubmittedText(), expected);
@@ -1246,6 +1248,119 @@ test("paste floor: maxSegments is forwarded through the patcher", () => {
 		patchEditorForSegmentedPaste(allowed, { root, maxSegments: 3 });
 		allowed.submitValue();
 		assert.ok(allowed.getSubmittedText().includes("[paste saved:"));
+	} finally {
+		rm(parent, { recursive: true, force: true }).catch(() => undefined);
+	}
+});
+
+// ---------------------------------------------------------------------------
+// Inline paste formatting (what a below-floor paste looks like in the prompt)
+// ---------------------------------------------------------------------------
+
+test("inline format: default spaced puts the paste in its own block", () => {
+	const { root, parent } = tmpRoot();
+	try {
+		const content = "alpha\nbeta";
+		const editor = fakeEditor(new Map([[1, content]]), "Review this: [paste #1 +2 lines] thanks");
+		patchEditorForSegmentedPaste(editor, { root }); // default floor declines
+		editor.submitValue();
+
+		assert.equal(editor.getSubmittedText(), "Review this: \n\nalpha\nbeta\n\nthanks");
+	} finally {
+		rm(parent, { recursive: true, force: true }).catch(() => undefined);
+	}
+});
+
+test("inline format: stock reproduces Pi's in-place expansion exactly", () => {
+	const { root, parent } = tmpRoot();
+	try {
+		const content = "alpha\nbeta";
+		const markerText = "Review this: [paste #1 +2 lines] thanks";
+
+		const stock = fakeEditor(new Map([[1, content]]), markerText);
+		stock.submitValue();
+
+		const patched = fakeEditor(new Map([[1, content]]), markerText);
+		patchEditorForSegmentedPaste(patched, { root, inlineFormat: "stock" });
+		patched.submitValue();
+
+		assert.equal(patched.getSubmittedText(), stock.getSubmittedText());
+	} finally {
+		rm(parent, { recursive: true, force: true }).catch(() => undefined);
+	}
+});
+
+test("inline format: fenced delimits the paste", () => {
+	const { root, parent } = tmpRoot();
+	try {
+		const editor = fakeEditor(new Map([[1, "const a = 1;"]]), "Review: [paste #1 12 chars] done");
+		patchEditorForSegmentedPaste(editor, { root, inlineFormat: "fenced" });
+		editor.submitValue();
+
+		assert.equal(editor.getSubmittedText(), "Review: \n\n```\nconst a = 1;\n```\n\ndone");
+	} finally {
+		rm(parent, { recursive: true, force: true }).catch(() => undefined);
+	}
+});
+
+test("inline format: marker missing from the Map falls back to stock expansion", () => {
+	// Stock Pi leaves an unresolved marker untouched; reformatting would drop it.
+	const { root, parent } = tmpRoot();
+	try {
+		const markerText = "before [paste #9 +3 lines] after";
+		const editor = fakeEditor(new Map(), markerText);
+		patchEditorForSegmentedPaste(editor, { root });
+		editor.submitValue();
+
+		assert.ok(editor.getSubmittedText().includes("[paste #9 +3 lines]"));
+	} finally {
+		rm(parent, { recursive: true, force: true }).catch(() => undefined);
+	}
+});
+
+// ---------------------------------------------------------------------------
+// Paste size annotation
+// ---------------------------------------------------------------------------
+
+test("reference: annotated with line count and size by default", () => {
+	const { root, parent } = tmpRoot();
+	try {
+		const content = "line\n".repeat(400); // 2000 B, 401 lines
+		const editor = fakeEditor(new Map([[1, content]]), "[paste #1 +400 lines]");
+		patchEditorForSegmentedPaste(editor, { root, minPasteBytes: 0 });
+		editor.submitValue();
+
+		const match = editor.getSubmittedText().match(/\[paste saved: ([^\]]+)\]/);
+		assert.ok(match, editor.getSubmittedText());
+		assert.match(match[1], / \(401 lines, 2\.0KB\)$/);
+	} finally {
+		rm(parent, { recursive: true, force: true }).catch(() => undefined);
+	}
+});
+
+test("reference: annotation can be disabled", () => {
+	const { root, parent } = tmpRoot();
+	try {
+		const editor = fakeEditor(new Map([[1, "x".repeat(8192)]]), "[paste #1 8192 chars]");
+		patchEditorForSegmentedPaste(editor, { root, minPasteBytes: 0, annotatePasteSize: false });
+		editor.submitValue();
+
+		const match = editor.getSubmittedText().match(/\[paste saved: ([^\]]+)\]/);
+		assert.ok(match);
+		assert.doesNotMatch(match[1], /lines,/);
+	} finally {
+		rm(parent, { recursive: true, force: true }).catch(() => undefined);
+	}
+});
+
+test("reference: single-line paste is described in the singular", () => {
+	const { root, parent } = tmpRoot();
+	try {
+		const editor = fakeEditor(new Map([[1, "only line"]]), "[paste #1 9 chars]");
+		patchEditorForSegmentedPaste(editor, { root, minPasteBytes: 0 });
+		editor.submitValue();
+
+		assert.match(editor.getSubmittedText(), /\(1 line, 9B\)/);
 	} finally {
 		rm(parent, { recursive: true, force: true }).catch(() => undefined);
 	}
